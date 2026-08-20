@@ -1,0 +1,13 @@
+{
+  "threshold": 0.99,
+  "method": "youden_j_synthetic_identities",
+  "n_identities": 60,
+  "repeats_per_identity": 5,
+  "genuine_score_mean": 0.9969,
+  "genuine_score_min": 0.9203,
+  "impostor_score_mean": 0.9394,
+  "impostor_score_max": 0.9965,
+  "genuine_accept_rate_at_threshold": 0.95,
+  "impostor_reject_rate_at_threshold": 0.9444,
+  "note": "Calibrated on synthetic identities (real CEDAR per-writer images are not bundled with this package). Re-run on real per-writer data for production use."
+}

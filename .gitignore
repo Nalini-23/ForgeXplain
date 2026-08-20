@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+venv/
+.env
+*.db
+# NOTE: trained_models/*.joblib and *.json are intentionally NOT ignored —
+# they must be committed so a fresh deploy (e.g. Streamlit Cloud) has the
+# real CEDAR-trained models instead of no models at all. Only the raw
+# CEDAR dataset images (large, and re-downloadable) are excluded below.
+reports/*.pdf
+logs/*.log
+dataset/CEDAR/full_org/
+dataset/CEDAR/full_forg/
+.streamlit/secrets.toml

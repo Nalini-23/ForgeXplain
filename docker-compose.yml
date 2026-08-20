@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  forgexplain:
+    build: .
+    image: forgexplain:latest
+    container_name: forgexplain-app
+    ports:
+      - "8501:8501"
+    environment:
+      - STORAGE_BACKEND=${STORAGE_BACKEND:-local}
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_KEY=${SUPABASE_KEY:-}
+      - SESSION_SECRET=${SESSION_SECRET:-dev-secret-change-in-production}
+      - DEFAULT_MODEL=${DEFAULT_MODEL:-random_forest}
+    volumes:
+      - ./dataset:/app/dataset          # mount real CEDAR dataset here
+      - ./trained_models:/app/trained_models
+      - ./reports:/app/reports
+      - ./logs:/app/logs
+      - ./database:/app/database        # persist SQLite file across restarts
+    restart: unless-stopped
