@@ -1,0 +1,145 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User account profile for authenticated forensics examiners.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user."
+        },
+        "email": {
+          "type": "string",
+          "description": "Email address of the user."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name of the user."
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "Avatar photo URL of the user."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "user"],
+          "description": "Role determining access to admin features."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp when the user registered."
+        }
+      },
+      "required": ["id", "email", "role"]
+    },
+    "Prediction": {
+      "title": "Prediction",
+      "description": "Signature analysis record containing specimen forensics, prediction, and SHAP explainability attributions.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique record identifier."
+        },
+        "userId": {
+          "type": "string",
+          "description": "Auth UID of the examiner who performed the analysis."
+        },
+        "userEmail": {
+          "type": "string",
+          "description": "Email of the examiner."
+        },
+        "imageFilename": {
+          "type": "string",
+          "description": "Filename of the analyzed specimen."
+        },
+        "label": {
+          "type": "string",
+          "description": "User-assigned label or specimen description (e.g. Contract Page 3, Cheque #102)."
+        },
+        "prediction": {
+          "type": "string",
+          "description": "Classification result (Genuine or Forged)."
+        },
+        "confidence": {
+          "type": "number",
+          "description": "Model confidence percentage."
+        },
+        "modelUsed": {
+          "type": "string",
+          "description": "Name and version of the ML model."
+        },
+        "predictionTimeMs": {
+          "type": "number",
+          "description": "Inference and feature extraction latency in ms."
+        },
+        "features": {
+          "type": "object",
+          "description": "Extracted stroke and spatial moments features."
+        },
+        "explanationSummary": {
+          "type": "string",
+          "description": "Plain language forensic diagnostic synthesis."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp when the analysis was performed."
+        }
+      },
+      "required": ["userId", "imageFilename", "prediction", "confidence"]
+    },
+    "Signer": {
+      "title": "Signer",
+      "description": "Enrolled reference signature card for writer-dependent verification.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the signer card."
+        },
+        "name": {
+          "type": "string",
+          "description": "Full name of the enrolled signer."
+        },
+        "numSamples": {
+          "type": "number",
+          "description": "Number of reference specimens averaged."
+        },
+        "featureVector": {
+          "type": "array",
+          "description": "23-dimensional normalized biometric feature vector."
+        },
+        "registeredBy": {
+          "type": "string",
+          "description": "Email or UID of examiner who enrolled the signer."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Enrollment timestamp."
+        }
+      },
+      "required": ["name", "numSamples"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/User"
+      },
+      "description": "Stores user profiles with role-based permissions."
+    },
+    "/predictions/{predictionId}": {
+      "schema": {
+        "$ref": "#/entities/Prediction"
+      },
+      "description": "Stores signature verification analysis and audit records."
+    },
+    "/signers/{signerId}": {
+      "schema": {
+        "$ref": "#/entities/Signer"
+      },
+      "description": "Stores enrolled signer reference cards for writer-dependent verification."
+    }
+  }
+}

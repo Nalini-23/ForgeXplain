@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: radial-gradient(ellipse 900px 500px at 15% -10%, rgba(124, 58, 237, 0.16), transparent 60%),
+                radial-gradient(ellipse 700px 500px at 110% 10%, rgba(236, 72, 153, 0.10), transparent 55%),
+                #0B0A14;
+    color: #EDEBF7;
+    min-height: 100vh;
+  }
+}
+
+/* Glass surfaces and glowing effects */
+.fx-card {
+  background: linear-gradient(155deg, rgba(28, 24, 48, 0.6) 0%, rgba(21, 18, 31, 0.85) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.22);
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(12px);
+}
+
+.fx-card-hi {
+  background: linear-gradient(155deg, rgba(35, 30, 60, 0.8) 0%, rgba(25, 21, 40, 0.95) 100%);
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  border-radius: 16px;
+  box-shadow: 0 8px 30px rgba(124, 58, 237, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.fx-border-glow {
+  border-color: rgba(168, 85, 247, 0.45);
+  box-shadow: 0 0 15px rgba(168, 85, 247, 0.25);
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0B0A14;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(139, 92, 246, 0.3);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(168, 85, 247, 0.5);
+}

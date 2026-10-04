@@ -1,0 +1,105 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isVerifiedEmail() {
+      return isSignedIn() && (request.auth.token.email_verified == true || request.auth.token.firebase.sign_in_provider == 'google.com');
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'naliniraju774@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Validation Blueprints
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'email', 'role']) &&
+             data.keys().hasOnly(['id', 'email', 'displayName', 'photoURL', 'role', 'createdAt']) &&
+             data.id is string && data.id == request.auth.uid &&
+             data.email is string && data.email.size() <= 256 &&
+             data.role in ['admin', 'user'];
+    }
+
+    function isValidPrediction(data) {
+      return data.keys().hasAll(['userId', 'imageFilename', 'prediction', 'confidence']) &&
+             data.keys().hasOnly(['id', 'userId', 'userEmail', 'imageFilename', 'label', 'prediction', 'confidence', 'modelUsed', 'predictionTimeMs', 'features', 'explanationSummary', 'createdAt']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.imageFilename is string && data.imageFilename.size() <= 256 &&
+             (!('label' in data) || (data.label is string && data.label.size() <= 256)) &&
+             data.prediction is string && data.prediction.size() <= 64 &&
+             data.confidence is number && data.confidence >= 0 && data.confidence <= 100;
+    }
+
+    function isValidSigner(data) {
+      return data.keys().hasAll(['name', 'numSamples']) &&
+             data.keys().hasOnly(['id', 'name', 'numSamples', 'featureVector', 'sampleImages', 'registeredBy', 'createdAt']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 128 &&
+             data.numSamples is number && data.numSamples >= 1 && data.numSamples <= 20;
+    }
+
+    // Admin collection
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUser(incoming()) && (
+        incoming().role == 'user' || isAdmin()
+      );
+      allow update: if isOwner(userId) && isValidId(userId) && isValidUser(incoming()) && (
+        (incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL'])) ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Predictions collection
+    match /predictions/{predictionId} {
+      allow get: if isSignedIn() && isValidId(predictionId) && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(predictionId) && isValidPrediction(incoming());
+      allow update: if isAdmin();
+      allow delete: if isSignedIn() && isValidId(predictionId) && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    // Signers collection
+    match /signers/{signerId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(signerId) && isValidSigner(incoming());
+      allow update: if isAdmin();
+      allow delete: if isSignedIn() && isValidId(signerId) && (isAdmin() || (existing().registeredBy == request.auth.token.email || existing().registeredBy == request.auth.uid));
+    }
+  }
+}
