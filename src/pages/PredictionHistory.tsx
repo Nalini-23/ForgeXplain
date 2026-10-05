@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { PredictionRecord } from '../types';
 import { subscribePredictions, deletePredictionFromFirestore } from '../services/firestoreService';
-import { History, Download, Trash2, Search, Filter, ChevronDown, CheckCircle2, AlertTriangle, Cloud, Tag } from 'lucide-react';
+import { History, Download, Trash2, Search, Filter, ChevronDown, CheckCircle2, AlertTriangle, Cloud, Tag, FileText } from 'lucide-react';
+import { generatePdfFromRecord } from '../utils/reportExporter';
 
 export const PredictionHistory: React.FC = () => {
   const { user } = useAuth();
@@ -95,14 +96,26 @@ export const PredictionHistory: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={handleExportCsv}
-          disabled={filteredRecords.length === 0}
-          className="px-4 py-2.5 rounded-xl text-xs font-bold bg-purple-950/60 hover:bg-purple-900/60 text-purple-200 border border-purple-700/40 flex items-center gap-2 transition-colors disabled:opacity-50"
-        >
-          <Download size={15} />
-          <span>Export as CSV</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {records.length > 0 && (
+            <button
+              onClick={() => generatePdfFromRecord(records[0], user?.email)}
+              className="px-4 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-purple-600 via-fuchsia-600 to-purple-600 hover:from-purple-500 text-white shadow-md flex items-center gap-1.5 transition-all"
+              title="Export the last/most recent historical analysis result as a PDF summary report"
+            >
+              <FileText size={15} />
+              <span>Export Last Result as PDF</span>
+            </button>
+          )}
+          <button
+            onClick={handleExportCsv}
+            disabled={filteredRecords.length === 0}
+            className="px-4 py-2.5 rounded-xl text-xs font-bold bg-purple-950/60 hover:bg-purple-900/60 text-purple-200 border border-purple-700/40 flex items-center gap-2 transition-colors disabled:opacity-50"
+          >
+            <Download size={15} />
+            <span>Export as CSV</span>
+          </button>
+        </div>
       </div>
 
       {/* Filters Bar */}
@@ -218,6 +231,13 @@ export const PredictionHistory: React.FC = () => {
                         {/* Actions */}
                         <td className="py-3 text-right">
                           <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => generatePdfFromRecord(r, user?.email)}
+                              className="p-1.5 rounded-lg hover:bg-purple-800/40 text-purple-300 border border-purple-800/40 transition-colors"
+                              title="Export this record as PDF summary report"
+                            >
+                              <FileText size={14} />
+                            </button>
                             <button
                               onClick={() => setExpandedId(isExpanded ? null : r.id)}
                               className="p-1.5 rounded-lg hover:bg-purple-800/30 text-purple-400"

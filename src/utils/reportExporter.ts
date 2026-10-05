@@ -1,5 +1,5 @@
 import { AnalysisResult } from '../types';
-import { generatePdfReport } from './pdfGenerator';
+import { generatePdfReport, generatePdfFromRecord } from './pdfGenerator';
 
 /**
  * Downloads the forensic analysis result as a structured JSON report file
@@ -75,4 +75,4 @@ function linkRef(url: string) {
   return dummy;
 }
 
-export { generatePdfReport };
+export { generatePdfReport, generatePdfFromRecord };
