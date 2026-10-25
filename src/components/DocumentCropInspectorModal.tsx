@@ -77,19 +77,19 @@ export const DocumentCropInspectorModal: React.FC<DocumentCropInspectorModalProp
           setBox(initialBox);
           setCroppedPreviewUrl(cropImageToDataUrl(img, initialBox));
         } else {
-          // Auto scan signature area
-          const scan = scanAndExtractSignature(img, label, 'document_cheque');
+          // Auto scan signature area using high-precision locator
+          const scan = scanAndExtractSignature(img, label, 'full_document');
           if (scan.wasCropped) {
             setBox(scan.box);
             setCroppedPreviewUrl(scan.croppedDataUrl);
           } else {
-            // Default to lower-right cheque/doc signature area
-            const defaultBox = {
-              x: Math.round(img.width * 0.52),
-              y: Math.round(img.height * 0.55),
-              width: Math.round(img.width * 0.40),
-              height: Math.round(img.height * 0.28),
-            };
+            // Default to compact signature area (never half page)
+            const defaultBox = fitBoxToStrokes(img, {
+              x: Math.round(img.width * 0.55),
+              y: Math.round(img.height * 0.70),
+              width: Math.min(260, Math.round(img.width * 0.35)),
+              height: Math.min(100, Math.round(img.height * 0.15)),
+            }, 12);
             setBox(defaultBox);
             setCroppedPreviewUrl(cropImageToDataUrl(img, defaultBox));
           }
@@ -296,38 +296,38 @@ export const DocumentCropInspectorModal: React.FC<DocumentCropInspectorModalProp
     const w = imgElement.width;
     const h = imgElement.height;
 
-    let newBox = { x: 0, y: 0, width: 200, height: 80 };
+    let newBox = { x: 0, y: 0, width: 220, height: 80 };
     if (type === 'cheque') {
       // Cheque lower-right (above MICR band)
       newBox = {
-        x: Math.round(w * 0.52),
-        y: Math.round(h * 0.52),
-        width: Math.round(w * 0.42),
-        height: Math.round(h * 0.32),
+        x: Math.round(w * 0.56),
+        y: Math.round(h * 0.58),
+        width: Math.min(260, Math.round(w * 0.35)),
+        height: Math.min(100, Math.round(h * 0.16)),
       };
     } else if (type === 'doc_right') {
       // Contract bottom-right
       newBox = {
-        x: Math.round(w * 0.52),
-        y: Math.round(h * 0.68),
-        width: Math.round(w * 0.42),
-        height: Math.round(h * 0.22),
+        x: Math.round(w * 0.54),
+        y: Math.round(h * 0.70),
+        width: Math.min(280, Math.round(w * 0.35)),
+        height: Math.min(110, Math.round(h * 0.15)),
       };
     } else if (type === 'doc_left') {
       // Contract bottom-left
       newBox = {
-        x: Math.round(w * 0.08),
-        y: Math.round(h * 0.68),
-        width: Math.round(w * 0.42),
-        height: Math.round(h * 0.22),
+        x: Math.round(w * 0.10),
+        y: Math.round(h * 0.70),
+        width: Math.min(280, Math.round(w * 0.35)),
+        height: Math.min(110, Math.round(h * 0.15)),
       };
     } else if (type === 'doc_center') {
       // Form bottom-center
       newBox = {
-        x: Math.round(w * 0.28),
-        y: Math.round(h * 0.68),
-        width: Math.round(w * 0.44),
-        height: Math.round(h * 0.22),
+        x: Math.round(w * 0.32),
+        y: Math.round(h * 0.70),
+        width: Math.min(280, Math.round(w * 0.36)),
+        height: Math.min(110, Math.round(h * 0.15)),
       };
     }
 

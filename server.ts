@@ -176,8 +176,27 @@ const predictions: PredictionRecord[] = [
   }
 ];
 
-// Registered signers - initialized empty so users register real signers with their own signature files
-const signers: SignerRecord[] = [];
+// Registered signers - initialized with default registered signers and extensible via UI
+const signers: SignerRecord[] = [
+  {
+    id: 'signer-seed-1',
+    name: 'Dr. Robert Vance (CFO)',
+    feature_vector: [0.18, 0.42, 2.3, 142, 62, 0.0022, 0.00048, 0.000014, 0.0000038, 0.0000009, 0.0000048, 0.0000014, 0.142, 0.165, 4, 380, 0.68, 14, 48, 88, 52, 24, 8],
+    num_samples: 3,
+    sample_images: [],
+    registered_by: 'admin@forgexplain.ai',
+    created_at: new Date(Date.now() - 86400000 * 5).toISOString()
+  },
+  {
+    id: 'signer-seed-2',
+    name: 'Elena Rostova (Authorized Signatory)',
+    feature_vector: [0.22, 0.48, 1.9, 128, 68, 0.0028, 0.00052, 0.000016, 0.0000042, 0.0000011, 0.0000052, 0.0000016, 0.158, 0.192, 5, 410, 0.72, 16, 52, 92, 58, 28, 10],
+    num_samples: 2,
+    sample_images: [],
+    registered_by: 'admin@forgexplain.ai',
+    created_at: new Date(Date.now() - 86400000 * 3).toISOString()
+  }
+];
 
 // ----------------------------------------------------
 // Auth Routes
@@ -415,7 +434,7 @@ async function startServer() {
   } else {
     const distPath = path.join(__dirname, 'dist');
     app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
+    app.use((_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

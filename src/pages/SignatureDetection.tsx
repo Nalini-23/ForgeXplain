@@ -10,6 +10,9 @@ import {
   extract23Features,
   computeVectorSimilarity,
   runPreprocessingPipeline,
+  verifySignatureAgainstRegister,
+  getSignerReferenceFeatures,
+  getSignerReferenceImage
 } from '../utils/signatureAnalysis';
 import { generatePdfReport, downloadJsonReport } from '../utils/reportExporter';
 import { savePredictionToFirestore, subscribeSigners, saveSignerToFirestore } from '../services/firestoreService';
@@ -17,6 +20,7 @@ import { ConfidenceGauge } from '../components/ConfidenceGauge';
 import { VisualExplainabilityStudio } from '../components/VisualExplainabilityStudio';
 import { DocumentCropInspectorModal } from '../components/DocumentCropInspectorModal';
 import { BulkSignerEnrollment } from '../components/BulkSignerEnrollment';
+import { SignatureComparisonModal } from '../components/SignatureComparisonModal';
 import {
   Upload,
   Sparkles,
@@ -44,7 +48,10 @@ import {
   Eye,
   X,
   Sliders,
-  PenTool
+  PenTool,
+  GitCompare,
+  Split,
+  Scale
 } from 'lucide-react';
 
 interface SignatureDetectionProps {
@@ -89,6 +96,7 @@ export interface VerificationQueueItem {
   threshold?: number;
   isMatch?: boolean;
   verdict?: string;
+  matchedOtherSigner?: { name: string; similarity: number } | null;
   error?: string;
 }
 
@@ -109,9 +117,29 @@ export const SignatureDetection: React.FC<SignatureDetectionProps> = ({ onAnalyz
   const [verifyQueue, setVerifyQueue] = useState<VerificationQueueItem[]>([]);
   const [isVerifyQueueRunning, setIsVerifyQueueRunning] = useState<boolean>(false);
 
-  // Signer verification state
-  const [signers, setSigners] = useState<SignerRecord[]>([]);
-  const [selectedSigner, setSelectedSigner] = useState<string>('');
+  // Signer verification state - pre-seeded with registered templates and synced to Firestore
+  const [signers, setSigners] = useState<SignerRecord[]>([
+    {
+      id: 'signer-seed-1',
+      name: 'Dr. Robert Vance (CFO)',
+      feature_vector: [0.18, 0.42, 2.3, 142, 62, 0.0022, 0.00048, 0.000014, 0.0000038, 0.0000009, 0.0000048, 0.0000014, 0.142, 0.165, 4, 380, 0.68, 14, 48, 88, 52, 24, 8],
+      num_samples: 3,
+      sample_images: [],
+      registered_by: 'admin@forgexplain.ai',
+      created_at: new Date(Date.now() - 86400000 * 5).toISOString()
+    },
+    {
+      id: 'signer-seed-2',
+      name: 'Elena Rostova (Authorized Signatory)',
+      feature_vector: [0.22, 0.48, 1.9, 128, 68, 0.0028, 0.00052, 0.000016, 0.0000042, 0.0000011, 0.0000052, 0.0000016, 0.158, 0.192, 5, 410, 0.72, 16, 52, 92, 58, 28, 10],
+      num_samples: 2,
+      sample_images: [],
+      registered_by: 'admin@forgexplain.ai',
+      created_at: new Date(Date.now() - 86400000 * 3).toISOString()
+    }
+  ]);
+  const [selectedSigner, setSelectedSigner] = useState<string>('Dr. Robert Vance (CFO)');
+  const [comparingVerifyItem, setComparingVerifyItem] = useState<VerificationQueueItem | null>(null);
 
   // Signer enrollment state
   const [showSignerEnrollForm, setShowSignerEnrollForm] = useState(false);
@@ -138,7 +166,7 @@ export const SignatureDetection: React.FC<SignatureDetectionProps> = ({ onAnalyz
   } | null>(null);
 
   // User-controlled upload scanning mode: 'signature_only' (disables cropping) | 'full_document' (enables smart extraction) | 'auto'
-  const [uploadDocMode, setUploadDocMode] = useState<'signature_only' | 'full_document' | 'auto'>('signature_only');
+  const [uploadDocMode, setUploadDocMode] = useState<'signature_only' | 'full_document' | 'auto'>('auto');
 
   // Notifications
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -686,17 +714,16 @@ export const SignatureDetection: React.FC<SignatureDetectionProps> = ({ onAnalyz
 
         setVerifyQueue((prev) =>
           prev.map((q) =>
-            q.id === item.id ? { ...q, progress: 70, stageText: 'Calculating Cosine Similarity...' } : q
+            q.id === item.id ? { ...q, progress: 70, stageText: 'Matching against registered signature template...' } : q
           )
         );
 
-        let similarity = 94.0;
-        if (targetVector.length > 0) {
-          similarity = computeVectorSimilarity(feat.vector, targetVector);
-        }
-        const threshold = 99.0;
-        const isMatch = similarity >= threshold;
-        const verdict = isMatch ? 'Matches registered signature' : 'Does not match registered signature';
+        // Perform calibrated biometric multi-moment verification
+        const verification = verifySignatureAgainstRegister(feat.vector, signers, item.signerName || selectedSigner);
+        const similarity = verification.similarity;
+        const threshold = verification.threshold; // 80.0
+        const isMatch = verification.isMatch;
+        const verdict = verification.verdictTitle;
 
         // Persist to Firestore
         try {
@@ -705,12 +732,12 @@ export const SignatureDetection: React.FC<SignatureDetectionProps> = ({ onAnalyz
             user_email: user?.email || '',
             image_filename: item.name,
             label: item.label,
-            prediction: verdict,
+            prediction: isMatch ? 'Matches Registered Signature' : 'Wrong Signature / Forged',
             confidence: similarity,
             model_used: `writer_dependent (${selectedSigner})`,
             prediction_time_ms: 85,
             features: { similarity, threshold },
-            explanation_summary: `Compared "${item.label}" against ${selectedSigner}'s enrolled reference templates.`,
+            explanation_summary: verification.verdictSummary,
             created_at: new Date().toISOString(),
           });
         } catch {}
@@ -733,9 +760,7 @@ export const SignatureDetection: React.FC<SignatureDetectionProps> = ({ onAnalyz
           },
           explanation: {
             backend: `Writer Biometric Verification against ${selectedSigner}`,
-            plain_language: isMatch
-              ? `Biometric comparison against registered signer ${selectedSigner}'s master reference templates yielded a ${similarity}% match, exceeding the verification threshold (${threshold}%). Specimen confirmed authentic.`
-              : `Biometric comparison against registered signer ${selectedSigner}'s master reference templates yielded only a ${similarity}% match, failing the minimum threshold (${threshold}%). Significant deviation indicates non-matching writer / forged specimen.`,
+            plain_language: verification.verdictSummary,
             dominant_region: 'Biometric Centroid Distance',
             stroke_metrics: {
               stroke_smoothness: 76,
@@ -758,11 +783,12 @@ export const SignatureDetection: React.FC<SignatureDetectionProps> = ({ onAnalyz
                   ...q,
                   status: 'completed',
                   progress: 100,
-                  stageText: isMatch ? `Matched (${similarity}%)` : `Divergent (${similarity}%)`,
+                  stageText: isMatch ? `Correct: Matches (${similarity}%)` : `Wrong Signature (${similarity}%)`,
                   similarity,
                   threshold,
                   isMatch,
                   verdict,
+                  matchedOtherSigner: verification.matchedOtherSigner,
                 }
               : q
           )
@@ -1129,6 +1155,86 @@ export const SignatureDetection: React.FC<SignatureDetectionProps> = ({ onAnalyz
               </button>
             </div>
           </div>
+
+          {/* Enrolled Registers Quick Inspection Table */}
+          {signers.length > 0 && (
+            <div className="pt-2 border-t border-purple-900/30 space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold text-purple-300">
+                <span className="flex items-center gap-1.5">
+                  <PenTool size={13} className="text-purple-400" />
+                  <span>Enrolled Signer Registers & Verification Benchmarks:</span>
+                </span>
+                <span className="text-[11px] text-purple-400 font-normal">
+                  {signers.length} Registered Signatories
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {signers.map((s) => {
+                  const isCurrent = s.name === selectedSigner;
+                  return (
+                    <div
+                      key={s.id}
+                      className={`p-3 rounded-xl border transition-all flex flex-col justify-between gap-2.5 ${
+                        isCurrent
+                          ? 'bg-purple-950/60 border-purple-500/80 shadow-md ring-1 ring-purple-500/30'
+                          : 'bg-black/30 border-purple-800/30 hover:border-purple-700/50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-20 h-11 rounded-lg bg-white border border-gray-200 flex items-center justify-center p-1 overflow-hidden shrink-0">
+                          <img
+                            src={getSignerReferenceImage(s, 0)}
+                            alt={`Master for ${s.name}`}
+                            className="max-h-full max-w-full object-contain filter contrast-125"
+                          />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-bold text-white truncate" title={s.name}>
+                            {s.name}
+                          </div>
+                          <div className="text-[10px] text-purple-300/70 mt-0.5">
+                            {s.num_samples} reference template{s.num_samples > 1 ? 's' : ''}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Writer Dependency Verification Action */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedSigner(s.name);
+                          // Open comparison against first item in verify queue or generic queue, or initialize with direct comparison ready for upload
+                          const targetItem = verifyQueue[0] || (genericQueue[0] ? {
+                            id: genericQueue[0].id,
+                            name: genericQueue[0].name,
+                            dataUrl: genericQueue[0].dataUrl,
+                            originalDocUrl: genericQueue[0].originalDocUrl,
+                            wasCroppedFromDocument: genericQueue[0].wasCroppedFromDocument,
+                            cropBox: genericQueue[0].cropBox,
+                            label: genericQueue[0].label,
+                            signerName: s.name,
+                          } : {
+                            id: `vq-direct-${Date.now()}`,
+                            name: 'Uploaded / Questioned Specimen',
+                            dataUrl: getSignerReferenceImage(s, 0),
+                            label: `Questioned Signature Specimen`,
+                            signerName: s.name,
+                          });
+                          setComparingVerifyItem(targetItem);
+                        }}
+                        className="w-full py-1.5 px-2.5 rounded-lg text-[11px] font-bold bg-purple-900/60 hover:bg-purple-800 text-purple-200 hover:text-white border border-purple-700/50 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                        title="Open comparable tool for Writer Dependency Verification"
+                      >
+                        <GitCompare size={13} className="text-purple-400" />
+                        <span>Writer Dependency Verification</span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Signer Enrollment Drawer */}
           {showSignerEnrollForm && (
@@ -1684,7 +1790,19 @@ export const SignatureDetection: React.FC<SignatureDetectionProps> = ({ onAnalyz
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {verifyQueue.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setComparingVerifyItem(verifyQueue[0])}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-purple-900/70 hover:bg-purple-800 text-purple-100 border border-purple-600/50 flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+                  title="Open interactive side-by-side comparison with registered signature"
+                >
+                  <GitCompare size={14} className="text-fuchsia-400" />
+                  <span>Open Comparison Tool</span>
+                </button>
+              )}
+
               <button
                 onClick={startVerifyQueueWorker}
                 disabled={isVerifyQueueRunning || verifyQueue.filter((q) => q.status === 'pending').length === 0}
@@ -1701,6 +1819,17 @@ export const SignatureDetection: React.FC<SignatureDetectionProps> = ({ onAnalyz
               >
                 Clear
               </button>
+            </div>
+          </div>
+
+          {/* Table Column Headers */}
+          <div className="hidden md:grid grid-cols-12 gap-3 px-4 py-2 rounded-lg bg-black/40 border border-purple-900/30 text-[11px] font-bold text-purple-300/80">
+            <div className="col-span-3">Specimen Image / Crop Status</div>
+            <div className="col-span-3">Query Specimen Label</div>
+            <div className="col-span-3">Verification Status & Score</div>
+            <div className="col-span-3 text-right flex items-center justify-end gap-1.5 text-purple-200">
+              <GitCompare size={13} className="text-purple-400" />
+              <span>Writer Dependency Verification</span>
             </div>
           </div>
 
@@ -1794,21 +1923,34 @@ export const SignatureDetection: React.FC<SignatureDetectionProps> = ({ onAnalyz
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-[11px] text-purple-300 truncate">{item.stageText}</span>
                     {item.isMatch !== undefined && (
-                      <div className="flex items-center gap-1.5">
-                        <span className={`text-xs font-bold ${item.isMatch ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {item.isMatch ? 'MATCH' : 'NO MATCH'}
-                        </span>
-                        {item.similarity !== undefined && (
+                      <div className="flex flex-col items-end gap-1">
+                        <div className="flex items-center gap-1.5">
                           <span
-                            className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 shadow-xs ${
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide border flex items-center gap-1 ${
                               item.isMatch
-                                ? 'bg-emerald-950/60 text-emerald-300 border-emerald-600/40'
-                                : 'bg-rose-950/60 text-rose-300 border-rose-600/40'
+                                ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/60 shadow-xs shadow-emerald-950'
+                                : 'bg-rose-950/80 text-rose-300 border-rose-500/60 shadow-xs shadow-rose-950'
                             }`}
-                            title={`Biometric Match Confidence: ${Math.round(item.similarity * 100)}%`}
                           >
-                            <span>{Math.round(item.similarity * 100)}%</span>
-                            <span className="text-[9px] opacity-80 font-sans font-medium">Confidence</span>
+                            <span>{item.isMatch ? '✓ CORRECT MATCH' : '✗ WRONG SIGNATURE'}</span>
+                          </span>
+                          {item.similarity !== undefined && (
+                            <span
+                              className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 shadow-xs ${
+                                item.isMatch
+                                  ? 'bg-emerald-950/60 text-emerald-300 border-emerald-600/40'
+                                  : 'bg-rose-950/60 text-rose-300 border-rose-600/40'
+                              }`}
+                              title={`Biometric Match Confidence: ${Math.round(item.similarity > 1 ? item.similarity : item.similarity * 100)}%`}
+                            >
+                              <span>{Math.round(item.similarity > 1 ? item.similarity : item.similarity * 100)}%</span>
+                              <span className="text-[9px] opacity-80 font-sans font-medium">Similarity</span>
+                            </span>
+                          )}
+                        </div>
+                        {item.matchedOtherSigner && !item.isMatch && (
+                          <span className="text-[10px] text-fuchsia-300 font-medium">
+                            Identified as: {item.matchedOtherSigner.name} ({Math.round(item.matchedOtherSigner.similarity)}%)
                           </span>
                         )}
                       </div>
@@ -1828,18 +1970,115 @@ export const SignatureDetection: React.FC<SignatureDetectionProps> = ({ onAnalyz
                   </div>
                 </div>
 
-                {item.status !== 'completed' && (
+                <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
                   <button
-                    onClick={() => handleRemoveFromVerifyQueue(item.id)}
-                    disabled={item.status === 'processing'}
-                    className="p-2 text-purple-400 hover:text-rose-400"
+                    type="button"
+                    onClick={() => setComparingVerifyItem(item)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-purple-900/60 hover:bg-purple-800 text-purple-200 hover:text-white border border-purple-700/50 flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                    title="Open comparable tool: match and compare registered signature with this uploaded signature"
                   >
-                    <Trash2 size={16} />
+                    <GitCompare size={14} className="text-purple-400" />
+                    <span>Compare with Registered</span>
                   </button>
-                )}
+
+                  {item.status !== 'completed' && (
+                    <button
+                      onClick={() => handleRemoveFromVerifyQueue(item.id)}
+                      disabled={item.status === 'processing'}
+                      className="p-2 text-purple-400 hover:text-rose-400 transition-colors"
+                      title="Remove from queue"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
+
+          {/* ========================================================================= */}
+          {/* INLINE WRITER-DEPENDENT SIGNATURE COMPARISON SHOWCASE                      */}
+          {/* ========================================================================= */}
+          {verifyQueue.length > 0 && (
+            <div className="p-4.5 rounded-2xl bg-gradient-to-r from-purple-950/60 via-[#18132B] to-purple-950/60 border-2 border-purple-600/40 space-y-4 shadow-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-purple-900/40">
+                <div className="flex items-center gap-2">
+                  <GitCompare size={16} className="text-purple-400" />
+                  <h4 className="text-xs font-black uppercase tracking-wider text-white">
+                    Comparable Tool: Registered vs. Uploaded Signature Matcher
+                  </h4>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setComparingVerifyItem(verifyQueue[0])}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-gradient-to-r from-purple-600 to-fuchsia-600 hover:from-purple-500 text-white flex items-center gap-1.5 shadow-md transition-all self-start sm:self-auto cursor-pointer"
+                >
+                  <Eye size={14} />
+                  <span>Open Full Comparison Studio</span>
+                </button>
+              </div>
+
+              {/* Side-by-Side Quick Inspection Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Registered Signer Card */}
+                <div className="p-3.5 rounded-xl bg-black/40 border border-emerald-500/40 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-emerald-300 uppercase tracking-wide flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                      Registered Signer: {selectedSigner}
+                    </span>
+                    <span className="text-[10px] text-purple-300/80">Master Reference</span>
+                  </div>
+
+                  <div className="h-32 rounded-lg bg-white border border-gray-200 flex items-center justify-center p-2 overflow-hidden shadow-inner">
+                    <img
+                      src={getSignerReferenceImage(
+                        signers.find((s) => s.name === selectedSigner) || signers[0] || { name: selectedSigner }
+                      )}
+                      alt="Registered Reference Signature"
+                      className="max-h-full max-w-full object-contain filter contrast-125"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-purple-300/70 pt-0.5">
+                    <span>Enrolled Templates: <strong className="text-white">{(signers.find((s) => s.name === selectedSigner) || signers[0])?.num_samples || 1}</strong></span>
+                    <span className="text-emerald-400 font-bold">Baseline Author</span>
+                  </div>
+                </div>
+
+                {/* Uploaded Query Card */}
+                <div className="p-3.5 rounded-xl bg-black/40 border border-purple-500/40 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-purple-300 uppercase tracking-wide flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-fuchsia-400" />
+                      Uploaded Query: {verifyQueue[0]?.label || verifyQueue[0]?.name}
+                    </span>
+                    <span className="text-[10px] text-purple-400 font-mono">
+                      {verifyQueue[0]?.isMatch !== undefined ? (verifyQueue[0].isMatch ? '✅ MATCH' : '⚠️ DIVERGENT') : 'Pending / Ready'}
+                    </span>
+                  </div>
+
+                  <div className="h-32 rounded-lg bg-white border border-gray-200 flex items-center justify-center p-2 overflow-hidden shadow-inner">
+                    <img
+                      src={verifyQueue[0]?.dataUrl}
+                      alt="Uploaded Query Signature"
+                      className="max-h-full max-w-full object-contain filter contrast-125"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[11px] text-purple-300/70 pt-0.5">
+                    <span>Biometric Match: <strong className="text-white font-mono">{verifyQueue[0]?.similarity !== undefined ? `${Math.round(verifyQueue[0].similarity)}%` : 'Ready to Verify'}</strong></span>
+                    <button
+                      type="button"
+                      onClick={() => setComparingVerifyItem(verifyQueue[0])}
+                      className="text-purple-300 hover:text-white underline font-bold cursor-pointer"
+                    >
+                      Compare Details ▶
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -2151,6 +2390,31 @@ export const SignatureDetection: React.FC<SignatureDetectionProps> = ({ onAnalyz
             setPreviewDocModal(null);
           }}
           onClose={() => setPreviewDocModal(null)}
+        />
+      )}
+
+      {/* ========================================================================= */}
+      {/* WRITER-DEPENDENT SIGNATURE COMPARISON TOOL MODAL                          */}
+      {/* ========================================================================= */}
+      {comparingVerifyItem && (
+        <SignatureComparisonModal
+          isOpen={true}
+          onClose={() => setComparingVerifyItem(null)}
+          queryItem={comparingVerifyItem}
+          currentSigner={
+            signers.find((s) => s.name === (comparingVerifyItem.signerName || selectedSigner)) ||
+            signers[0] || {
+              id: 'fallback-signer',
+              name: selectedSigner || 'Registered Signer',
+              feature_vector: [],
+              num_samples: 1,
+              sample_images: [],
+              registered_by: 'system',
+              created_at: new Date().toISOString(),
+            }
+          }
+          allSigners={signers}
+          onSelectSigner={(name) => setSelectedSigner(name)}
         />
       )}
     </div>

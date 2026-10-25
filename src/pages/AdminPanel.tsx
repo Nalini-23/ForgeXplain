@@ -2,9 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { User, PredictionRecord, SignerRecord } from '../types';
 import { subscribeSigners, saveSignerToFirestore, deleteSignerFromFirestore, subscribePredictions } from '../services/firestoreService';
-import { loadImage, runPreprocessingPipeline, extract23Features } from '../utils/signatureAnalysis';
+import { loadImage, runPreprocessingPipeline, extract23Features, getSignerReferenceImage } from '../utils/signatureAnalysis';
 import { BulkSignerEnrollment } from '../components/BulkSignerEnrollment';
-import { Shield, Users, RefreshCw, PenTool, Trash2, CheckCircle2, AlertCircle, Upload, Check } from 'lucide-react';
+import { SignatureComparisonModal } from '../components/SignatureComparisonModal';
+import { Shield, Users, RefreshCw, PenTool, Trash2, CheckCircle2, AlertCircle, Upload, Check, GitCompare, Eye } from 'lucide-react';
 
 export const AdminPanel: React.FC = () => {
   const { user } = useAuth();
@@ -25,6 +26,7 @@ export const AdminPanel: React.FC = () => {
 
   // Signers state
   const [signers, setSigners] = useState<SignerRecord[]>([]);
+  const [comparingSigner, setComparingSigner] = useState<SignerRecord | null>(null);
 
   useEffect(() => {
     fetchUsers();
@@ -368,43 +370,124 @@ export const AdminPanel: React.FC = () => {
               />
             </div>
 
-            {/* Registered Signers List */}
-            <div className="fx-card p-6 lg:col-span-2">
-              <h3 className="text-base font-bold text-white mb-4">Active Enrolled Signers (Firestore)</h3>
-              <div className="space-y-3">
-                {signers.length > 0 ? (
-                  signers.map((s) => (
-                    <div
-                      key={s.id}
-                      className="p-4 rounded-xl bg-purple-950/20 border border-purple-800/30 flex items-center justify-between"
-                    >
-                      <div>
-                        <h4 className="text-sm font-bold text-white">{s.name}</h4>
-                        <div className="flex items-center gap-3 text-xs text-purple-300/70 mt-1">
-                          <span>{s.num_samples} reference specimen{s.num_samples > 1 ? 's' : ''}</span>
-                          <span>&bull;</span>
-                          <span>Enrolled: {new Date(s.created_at).toLocaleDateString()}</span>
-                        </div>
-                      </div>
-
-                      <button
-                        onClick={() => handleDeleteSigner(s.id)}
-                        className="p-2 rounded-lg text-rose-400 hover:bg-rose-950/40 transition-colors"
-                        title="Delete signer"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  ))
-                ) : (
-                  <div className="text-sm text-purple-300/50 py-6 text-center">
-                    No signers enrolled yet.
-                  </div>
-                )}
+            {/* Registered Signers Registers Table */}
+            <div className="fx-card p-6 lg:col-span-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <PenTool size={18} className="text-purple-400" />
+                    <span>Enrolled Signer Registers (Firestore Database)</span>
+                  </h3>
+                  <p className="text-xs text-purple-300/70 mt-0.5">
+                    Official benchmark signatories register. Use the Writer Dependency Verification column to match and verify uploaded signatures against master records.
+                  </p>
+                </div>
+                <span className="px-3 py-1 rounded-full text-xs font-bold bg-purple-900/60 text-purple-200 border border-purple-700/50 self-start sm:self-auto">
+                  {signers.length} Registered Signatories
+                </span>
               </div>
+
+              {signers.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-purple-900/30 text-purple-300/70 text-xs">
+                        <th className="pb-3 font-semibold">Signer Name / Register ID</th>
+                        <th className="pb-3 font-semibold">Registered Master Signature</th>
+                        <th className="pb-3 font-semibold">Templates</th>
+                        <th className="pb-3 font-semibold">Enrolled By / Date</th>
+                        <th className="pb-3 font-semibold text-center bg-purple-950/40 rounded-t-lg border-x border-purple-800/40">
+                          <span className="text-purple-200 font-extrabold flex items-center justify-center gap-1.5 py-1">
+                            <GitCompare size={14} className="text-purple-400" />
+                            <span>Writer Dependency Verification</span>
+                          </span>
+                        </th>
+                        <th className="pb-3 font-semibold text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-purple-900/20 text-xs">
+                      {signers.map((s) => (
+                        <tr key={s.id} className="hover:bg-purple-900/10 transition-colors">
+                          <td className="py-3">
+                            <div className="font-bold text-white text-sm">{s.name}</div>
+                            <div className="text-[11px] text-purple-400/70 font-mono mt-0.5">ID: {s.id}</div>
+                          </td>
+
+                          <td className="py-3">
+                            <div className="w-28 h-14 rounded-lg bg-white border border-gray-200 flex items-center justify-center p-1.5 shadow-xs overflow-hidden">
+                              <img
+                                src={getSignerReferenceImage(s, 0)}
+                                alt={`Master Signature for ${s.name}`}
+                                className="max-h-full max-w-full object-contain filter contrast-125"
+                              />
+                            </div>
+                          </td>
+
+                          <td className="py-3">
+                            <span className="px-2.5 py-1 rounded-full font-bold bg-purple-950/60 text-purple-200 border border-purple-800/40">
+                              {s.num_samples} sample{s.num_samples > 1 ? 's' : ''}
+                            </span>
+                          </td>
+
+                          <td className="py-3 text-purple-300/80">
+                            <div>{new Date(s.created_at).toLocaleDateString()}</div>
+                            <div className="text-[10px] text-purple-400/60 font-mono truncate max-w-[140px]">
+                              {s.registered_by || 'Admin'}
+                            </div>
+                          </td>
+
+                          {/* EXACT REQUESTED COLUMN: Writer Dependency Verification */}
+                          <td className="py-3 px-4 text-center bg-purple-950/20 border-x border-purple-800/30">
+                            <button
+                              type="button"
+                              onClick={() => setComparingSigner(s)}
+                              className="w-full px-3.5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-purple-600 via-fuchsia-600 to-purple-600 hover:from-purple-500 text-white shadow-md shadow-purple-950/50 flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-95"
+                              title="Launch comparable tool to match this registered signature with an uploaded signature"
+                            >
+                              <GitCompare size={15} />
+                              <span>Compare with Uploaded Signature</span>
+                            </button>
+                            <span className="block text-[10px] text-purple-300/60 mt-1">
+                              Comparable Tool: 23-Feature Biometric Matcher
+                            </span>
+                          </td>
+
+                          <td className="py-3 text-right">
+                            <button
+                              onClick={() => handleDeleteSigner(s.id)}
+                              className="p-2 rounded-lg text-purple-400 hover:text-rose-400 hover:bg-rose-950/40 transition-colors cursor-pointer"
+                              title="Delete registered signer"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-sm text-purple-300/50 py-10 text-center">
+                  No signers enrolled yet. Use the bulk signer enrollment above to register signatories.
+                </div>
+              )}
             </div>
           </div>
         </div>
+      )}
+
+      {/* Writer-Dependent Comparable Tool Modal */}
+      {comparingSigner && (
+        <SignatureComparisonModal
+          isOpen={true}
+          onClose={() => setComparingSigner(null)}
+          currentSigner={comparingSigner}
+          allSigners={signers}
+          onSelectSigner={(name) => {
+            const found = signers.find((s) => s.name === name);
+            if (found) setComparingSigner(found);
+          }}
+        />
       )}
     </div>
   );
